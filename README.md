@@ -5,6 +5,13 @@
 [![Swift](https://img.shields.io/badge/Swift-5.0+-orange.svg)](https://swift.org/)
 [![License](https://img.shields.io/badge/License-GPL%20v3-yellow.svg)](LICENSE)
 
+## Download
+
+**Available on the Mac App Store:**
+
+[![Download on the Mac App Store](https://developer.apple.com/app-store/marketing/guidelines/images/badge-download-on-the-mac-app-store.svg)](https://apps.apple.com/ch/app/homemenubar/id6749576769)
+
+
 ![App Store Banner](https://i.imgur.com/Q8l7WNY.jpeg)
 
 Control your HomeKit accessories from the macOS menu bar. A responsive, low-overhead controller that feels native on macOS.
