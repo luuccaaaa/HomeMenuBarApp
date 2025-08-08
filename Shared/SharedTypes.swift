@@ -60,6 +60,7 @@ public enum ServiceType: String, CaseIterable {
     case lightbulb = "lightbulb"
     case `switch` = "switch"
     case outlet = "outlet"
+    case programmableSwitch = "programmableSwitch"
     
     public var isSupported: Bool {
         switch self {
@@ -67,7 +68,10 @@ public enum ServiceType: String, CaseIterable {
              .humiditySensor,
              .temperatureSensor,
              .lightSensor,
-             .airQualitySensor:
+             .airQualitySensor,
+             .switch,
+             .outlet,
+             .programmableSwitch:
             return true
         default:
             return false
@@ -106,10 +110,21 @@ public enum ServiceType: String, CaseIterable {
     case sulphurDioxideDensity = 25
     case vocDensity = 26
     
+    // Power and switches
+    case batteryLevel = 27
+    case chargingState = 28
+    case contactState = 29
+    case outletInUse = 30
+    case statusLowBattery = 31
+    case outputState = 32
+    case inputEvent = 33
+    case powerModeSelection = 34
+    
     public var isSupported: Bool {
         switch self {
         case .brightness, .hue, .saturation, .currentTemperature, .currentRelativeHumidity, .on, .targetTemperature, .targetRelativeHumidity, .currentLightLevel, .colorTemperature,
-             .airQuality, .airParticulateDensity, .airParticulateSize, .smokeDetected, .carbonDioxideDetected, .carbonDioxideLevel, .carbonDioxidePeakLevel, .carbonMonoxideDetected, .carbonMonoxideLevel, .carbonMonoxidePeakLevel, .nitrogenDioxideDensity, .ozoneDensity, .pm10Density, .pm2_5Density, .sulphurDioxideDensity, .vocDensity:
+             .airQuality, .airParticulateDensity, .airParticulateSize, .smokeDetected, .carbonDioxideDetected, .carbonDioxideLevel, .carbonDioxidePeakLevel, .carbonMonoxideDetected, .carbonMonoxideLevel, .carbonMonoxidePeakLevel, .nitrogenDioxideDensity, .ozoneDensity, .pm10Density, .pm2_5Density, .sulphurDioxideDensity, .vocDensity,
+             .batteryLevel, .chargingState, .contactState, .outletInUse, .statusLowBattery, .outputState, .inputEvent, .powerModeSelection:
             return true
         default:
             return false
@@ -145,6 +160,14 @@ public enum ServiceType: String, CaseIterable {
         case .pm2_5Density: return "pm2_5Density"
         case .sulphurDioxideDensity: return "sulphurDioxideDensity"
         case .vocDensity: return "vocDensity"
+        case .batteryLevel: return "batteryLevel"
+        case .chargingState: return "chargingState"
+        case .contactState: return "contactState"
+        case .outletInUse: return "outletInUse"
+        case .statusLowBattery: return "statusLowBattery"
+        case .outputState: return "outputState"
+        case .inputEvent: return "inputEvent"
+        case .powerModeSelection: return "powerModeSelection"
         }
     }
 }
@@ -441,6 +464,9 @@ extension ServiceType {
             self = .switch
         case HMServiceTypeOutlet:
             self = .outlet
+        // Stateless/programmable switch support
+        case HMServiceTypeStatelessProgrammableSwitch:
+            self = .programmableSwitch
         default:
             self = .unknown
         }
@@ -449,6 +475,14 @@ extension ServiceType {
 
 extension CharacteristicType {
     init(key: String) {
+        // Handle newer characteristics that require availability checks first
+        if #available(iOS 18.0, macCatalyst 18.0, *) {
+            if key == HMCharacteristicTypePowerModeSelection {
+                self = .powerModeSelection
+                return
+            }
+        }
+        
         switch key {
         case HMCharacteristicTypeBrightness:
             self = .brightness
@@ -504,6 +538,22 @@ extension CharacteristicType {
             self = .sulphurDioxideDensity
         case HMCharacteristicTypeVolatileOrganicCompoundDensity:
             self = .vocDensity
+        
+        // Power and switches
+        case HMCharacteristicTypeBatteryLevel:
+            self = .batteryLevel
+        case HMCharacteristicTypeChargingState:
+            self = .chargingState
+        case HMCharacteristicTypeContactState:
+            self = .contactState
+        case HMCharacteristicTypeOutletInUse:
+            self = .outletInUse
+        case HMCharacteristicTypeStatusLowBattery:
+            self = .statusLowBattery
+        case HMCharacteristicTypeOutputState:
+            self = .outputState
+        case HMCharacteristicTypeInputEvent:
+            self = .inputEvent
             
         default:
             self = .unknown

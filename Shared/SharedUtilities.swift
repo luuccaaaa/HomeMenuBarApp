@@ -3,17 +3,19 @@ import Foundation
 // MARK: - Shared Utilities
 public class SharedUtilities {
     // MARK: - Service Classification
-    /// True if the service should be treated as a lightbulb (and not as a sensor)
+    /// True if the service should be treated as a lightbulb (and not as a sensor or power-only device)
     /// Classification rule:
-    /// - Bulb traits: presence of hue/saturation/brightness/colorTemperature or on
+    /// - Bulb traits: presence of hue/saturation/brightness/colorTemperature (NOT just on/off)
     /// - Sensor traits: temperature/humidity/light level or any air‑quality related metrics
-    /// Service is a bulb if it has any bulb trait and does NOT expose sensor traits.
+    /// Service is a bulb if it has any advanced bulb trait and does NOT expose sensor traits.
     public static func isServiceLightbulb(_ service: ServiceInfoProtocol) -> Bool {
+        // If type is explicitly lightbulb, treat as bulb
+        if let s = service as? ServiceInfo, s.type == .lightbulb { return true }
         var hasBulbTrait = false
         var hasSensorTrait = false
         for c in service.characteristics {
             switch c.type {
-            case .hue, .saturation, .brightness, .colorTemperature, .on:
+            case .hue, .saturation, .brightness, .colorTemperature:
                 hasBulbTrait = true
             case .currentTemperature, .currentRelativeHumidity, .currentLightLevel,
                  .airQuality, .airParticulateDensity, .airParticulateSize,
@@ -55,6 +57,8 @@ public class SharedUtilities {
         var hasAirQualitySensor = false
         var hasLightbulb = false
         var hasSwitch = false
+        var hasOutlet = false
+        var hasProgrammableSwitch = false
         
         HMLog.menuDebug("inferServiceType: analyzing \(service.characteristics.count) characteristics for service \(service.name)")
         
@@ -81,11 +85,17 @@ public class SharedUtilities {
                 hasLightbulb = true
                 HMLog.menuDebug("inferServiceType: found lightbulb")
             case .on:
-                // If it only has on/off, it might be a switch or outlet
+                // On-only without color/brightness hints at switch/outlet
                 if !hasLightbulb {
                     hasSwitch = true
-                    HMLog.menuDebug("inferServiceType: found switch")
+                    HMLog.menuDebug("inferServiceType: found switch candidate")
                 }
+            case .outletInUse:
+                hasOutlet = true
+                HMLog.menuDebug("inferServiceType: found outlet characteristic")
+            case .inputEvent, .outputState:
+                hasProgrammableSwitch = true
+                HMLog.menuDebug("inferServiceType: found programmable switch characteristic")
             default:
                 break
             }
@@ -107,6 +117,12 @@ public class SharedUtilities {
         } else if hasLightbulb {
             HMLog.menuDebug("inferServiceType: returning lightbulb")
             return .lightbulb
+        } else if hasOutlet {
+            HMLog.menuDebug("inferServiceType: returning outlet")
+            return .outlet
+        } else if hasProgrammableSwitch {
+            HMLog.menuDebug("inferServiceType: returning programmableSwitch")
+            return .programmableSwitch
         } else if hasSwitch {
             HMLog.menuDebug("inferServiceType: returning switch")
             return .switch

@@ -61,9 +61,14 @@ extension NSMenuItem {
         case .lightbulb:
             return [AdaptiveLightbulbMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]
         case .switch:
+            HMLog.menuDebug("Factory: routing service \(serviceInfo.name) to SwitchMenuItem (explicit type)")
             return [SwitchMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]
         case .outlet:
+            HMLog.menuDebug("Factory: routing service \(serviceInfo.name) to OutletMenuItem (explicit type)")
             return [OutletMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]
+        case .programmableSwitch:
+            HMLog.menuDebug("Factory: routing service \(serviceInfo.name) to ProgrammableSwitchMenuItem (explicit type)")
+            return [ProgrammableSwitchMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]
         case .unknown:
             // Fallback routing for unknown types using characteristics, then weak name hints
             if hasAirQualityCharacteristics {
@@ -75,7 +80,14 @@ extension NSMenuItem {
             if hasColorCharacteristics || (hasOnOff && nameSuggestsLightbulb) {
                 return [AdaptiveLightbulbMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]
             }
-            if nameSuggestsSwitch {
+            // Prefer outlet UI if an outlet-in-use characteristic is present
+            if serviceInfo.characteristics.contains(where: { $0.type == .outletInUse }) {
+                HMLog.menuDebug("Factory: routing service \(serviceInfo.name) to OutletMenuItem (fallback by outletInUse)")
+                return [OutletMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]
+            }
+            // Then prefer explicit switch if we saw any on/off characteristic or name suggests
+            if hasOnOff || nameSuggestsSwitch {
+                HMLog.menuDebug("Factory: routing service \(serviceInfo.name) to SwitchMenuItem (fallback)")
                 return [SwitchMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]
             }
             return [ToggleMenuItem(serviceInfo: serviceInfo, mac2ios: mac2ios)]

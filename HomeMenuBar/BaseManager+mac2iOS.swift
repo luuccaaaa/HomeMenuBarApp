@@ -8,6 +8,9 @@ extension BaseManager {
         homeManager?.delegate = nil
         homeManager = HMHomeManager()
         homeManager?.delegate = self
+        // Reset loading state so early alerts are not shown
+        initialHomeListReceived = false
+        homeFetchRetryCount = 0
     }
 
     /// Read a characteristic value and forward the result to the macOS plug‑in.

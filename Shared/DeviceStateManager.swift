@@ -77,6 +77,25 @@ import Foundation
                 if let doubleValue = value as? Double {
                     deviceState.currentRelativeHumidity = doubleValue // %
                 }
+            case .batteryLevel:
+                if let doubleValue = value as? Double { deviceState.batteryLevel = doubleValue }
+            case .chargingState:
+                if let intValue = value as? Int { deviceState.isCharging = (intValue != 0) }
+                else if let boolValue = value as? Bool { deviceState.isCharging = boolValue }
+            case .contactState:
+                if let boolValue = value as? Bool { deviceState.isContactDetected = boolValue }
+            case .outletInUse:
+                if let boolValue = value as? Bool { deviceState.isOutletInUse = boolValue }
+            case .statusLowBattery:
+                if let boolValue = value as? Bool { deviceState.isLowBattery = boolValue }
+            case .outputState:
+                if let boolValue = value as? Bool { deviceState.programmableSwitchOutputOn = boolValue }
+            case .inputEvent:
+                if let intValue = value as? Int { deviceState.lastInputEvent = intValue }
+                else if let doubleValue = value as? Double { deviceState.lastInputEvent = Int(doubleValue) }
+            case .powerModeSelection:
+                if let intValue = value as? Int { deviceState.powerModeSelection = intValue }
+                else if let doubleValue = value as? Double { deviceState.powerModeSelection = Int(doubleValue) }
             default:
                 break
             }
@@ -178,6 +197,15 @@ import Foundation
     public var currentTemperature: Double = 0.0
     public var currentRelativeHumidity: Double = 0.0
     public var isReachable: Bool = true
+    // Power and switches
+    public var batteryLevel: Double = 0.0
+    public var isCharging: Bool = false
+    public var isContactDetected: Bool = false
+    public var isOutletInUse: Bool = false
+    public var isLowBattery: Bool = false
+    public var programmableSwitchOutputOn: Bool = false
+    public var lastInputEvent: Int = 0
+    public var powerModeSelection: Int = 0
     
     public init(deviceUUID: UUID) {
         self.deviceUUID = deviceUUID
@@ -185,7 +213,7 @@ import Foundation
     }
     
     public override var description: String {
-        return "DeviceState(deviceUUID: \(deviceUUID), isOn: \(isOn), brightness: \(brightness), hue: \(hue), saturation: \(saturation), colorTemperature: \(colorTemperature), currentLightLevel: \(currentLightLevel), isReachable: \(isReachable))"
+        return "DeviceState(deviceUUID: \(deviceUUID), isOn: \(isOn), brightness: \(brightness), hue: \(hue), saturation: \(saturation), colorTemperature: \(colorTemperature), currentLightLevel: \(currentLightLevel), currentTemperature: \(currentTemperature), currentRelativeHumidity: \(currentRelativeHumidity), batteryLevel: \(batteryLevel), isCharging: \(isCharging), isContactDetected: \(isContactDetected), isOutletInUse: \(isOutletInUse), isLowBattery: \(isLowBattery), programmableSwitchOutputOn: \(programmableSwitchOutputOn), lastInputEvent: \(lastInputEvent), powerModeSelection: \(powerModeSelection), isReachable: \(isReachable))"
     }
 }
 

@@ -7,14 +7,14 @@ class ToggleMenuItem: NSMenuItem, MenuItemFromUUID, ErrorMenuItem, StateObserver
     var reachable: Bool = true
     internal var characteristicUUID: UUID?
     internal var mac2ios: mac2iOS?
-    var deviceUUID: UUID = UUID() // This should be set during initialization
+    var deviceUUID: UUID = UUID() // Will be set to service UUID
     
     init(serviceInfo: ServiceInfoProtocol, mac2ios: mac2iOS?) {
         super.init(title: serviceInfo.name, action: #selector(toggle), keyEquivalent: "")
         self.mac2ios = mac2ios
         self.target = self
         
-        // Set the device UUID to the service's unique identifier
+        // Device state is keyed by service UUID
         self.deviceUUID = serviceInfo.uniqueIdentifier
         
         // Find the on/off characteristic - use the same logic as AdaptiveLightbulbMenuItem
@@ -49,8 +49,7 @@ class ToggleMenuItem: NSMenuItem, MenuItemFromUUID, ErrorMenuItem, StateObserver
     }
     
     func update(value: Bool) {
-        // Keep the title clean - no bullet points or status text
-        // The icon (lightbulb) will show the state instead
+        // Child classes update icons; here we only flip reachability
         self.reachable = true
     }
     
@@ -1531,11 +1530,23 @@ class SimpleToggleMenuItem: NSMenuItem, MenuItemFromUUID, ErrorMenuItem, StateOb
 class SwitchMenuItem: ToggleMenuItem {
     override init(serviceInfo: ServiceInfoProtocol, mac2ios: mac2iOS?) {
         super.init(serviceInfo: serviceInfo, mac2ios: mac2ios)
-        self.image = NSImage(systemSymbolName: "switch.2", accessibilityDescription: nil)
+        // Default icon before first state arrives
+        self.image = NSImage(systemSymbolName: "lightswitch.off", accessibilityDescription: nil)
+        // Observe state updates for this service
+        DeviceStateManager.shared.addObserver(for: deviceUUID, observer: self)
     }
     
     required init(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func update(value: Bool) {
+        // Update icon based on state using requested symbols
+        let name = value ? "lightswitch.off.fill" : "lightswitch.off"
+        if let img = NSImage(systemSymbolName: name, accessibilityDescription: nil) {
+            self.image = img
+        }
+        super.update(value: value)
     }
 }
 
@@ -1544,9 +1555,61 @@ class OutletMenuItem: ToggleMenuItem {
     override init(serviceInfo: ServiceInfoProtocol, mac2ios: mac2iOS?) {
         super.init(serviceInfo: serviceInfo, mac2ios: mac2ios)
         self.image = NSImage(systemSymbolName: "poweroutlet.type.b", accessibilityDescription: nil)
+        // Observe state updates for this service
+        DeviceStateManager.shared.addObserver(for: deviceUUID, observer: self)
     }
     
     required init(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func update(value: Bool) {
+        // Prefer filled outlet when on if available
+        let preferred = value ? "poweroutlet.type.b.fill" : "poweroutlet.type.b"
+        if let img = NSImage(systemSymbolName: preferred, accessibilityDescription: nil) {
+            self.image = img
+        }
+        super.update(value: value)
+    }
+}
+// MARK: - Programmable Switch Menu Item (stateless)
+class ProgrammableSwitchMenuItem: NSMenuItem, MenuItemFromUUID, ErrorMenuItem {
+    var reachable: Bool = true
+    private var inputEventUUID: UUID?
+    private var outputStateUUID: UUID?
+    private weak var mac2ios: mac2iOS?
+    var deviceUUID: UUID = UUID()
+
+    init(serviceInfo: ServiceInfoProtocol, mac2ios: mac2iOS?) {
+        super.init(title: serviceInfo.name, action: #selector(noop), keyEquivalent: "")
+        self.mac2ios = mac2ios
+        self.target = self
+        self.deviceUUID = serviceInfo.uniqueIdentifier
+
+        // Prefer input event for stateless presses; output state if exposed
+        inputEventUUID = SharedUtilities.findCharacteristic(by: .inputEvent, in: serviceInfo.characteristics)
+        outputStateUUID = SharedUtilities.findCharacteristic(by: .outputState, in: serviceInfo.characteristics)
+
+        self.image = NSImage(systemSymbolName: "button.programmable", accessibilityDescription: nil) ?? NSImage(systemSymbolName: "rectangle.and.hand.point.up.left", accessibilityDescription: nil)
+        self.image?.isTemplate = true
+
+        // Ask for current state if any readable characteristic exists
+        if let inputEventUUID { mac2ios?.readCharacteristic(of: inputEventUUID) }
+        if let outputStateUUID { mac2ios?.readCharacteristic(of: outputStateUUID) }
+    }
+
+    required init(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    @objc private func noop() { }
+
+    // MARK: - MenuItemFromUUID
+    func bind(with uniqueIdentifier: UUID) -> Bool {
+        return inputEventUUID == uniqueIdentifier || outputStateUUID == uniqueIdentifier
+    }
+    func UUIDs() -> [UUID] {
+        var ids: [UUID] = []
+        if let inputEventUUID { ids.append(inputEventUUID) }
+        if let outputStateUUID { ids.append(outputStateUUID) }
+        return ids
     }
 }
