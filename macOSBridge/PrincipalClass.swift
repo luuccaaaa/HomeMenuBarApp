@@ -680,8 +680,8 @@ public class MacOSController: NSObject, @preconcurrency iOS2Mac, NSMenuDelegate 
                 var sensorItems: [NSMenuItem] = []
 
                 for accessory in roomAccessories {
-                    // Collect device services
-                    let deviceServices = accessory.services.filter { isServiceSupported($0) && isDeviceService($0) && !isDeviceHidden($0.uniqueIdentifier.uuidString) }
+                    // Collect device services (infer type before support gating)
+                    let deviceServices = accessory.services.filter { isDeviceService($0) && !isDeviceHidden($0.uniqueIdentifier.uuidString) }
                     for svc in deviceServices {
                         let created = NSMenuItem.HomeMenus(serviceInfo: svc, mac2ios: iosListener).compactMap { $0 }
                         deviceItems.append(contentsOf: created)
@@ -702,7 +702,7 @@ public class MacOSController: NSObject, @preconcurrency iOS2Mac, NSMenuDelegate 
                     for svc in accessory.services {
                         HMLog.menuDebug("Room \(room.name): Service \(svc.name) - isServiceSupported: \(isServiceSupported(svc)), isSensorService: \(isSensorService(svc)), isHidden: \(isDeviceHidden(svc.uniqueIdentifier.uuidString))")
                     }
-                    let sensorServices = accessory.services.filter { isServiceSupported($0) && isSensorService($0) && !isDeviceHidden($0.uniqueIdentifier.uuidString) }
+                    let sensorServices = accessory.services.filter { isSensorService($0) && !isDeviceHidden($0.uniqueIdentifier.uuidString) }
                     HMLog.menuDebug("Room \(room.name): Found \(sensorServices.count) sensor services for accessory \(accessory.name)")
                     for svc in sensorServices {
                         HMLog.menuDebug("Processing sensor service: \(svc.name) (UUID: \(svc.uniqueIdentifier))")
@@ -774,7 +774,7 @@ public class MacOSController: NSObject, @preconcurrency iOS2Mac, NSMenuDelegate 
 
             for accessory in accessories {
                 for svc in accessory.services {
-                    guard isServiceSupported(svc), !isDeviceHidden(svc.uniqueIdentifier.uuidString) else { continue }
+                    guard !isDeviceHidden(svc.uniqueIdentifier.uuidString) else { continue }
                     if isDeviceService(svc) {
                         let created = NSMenuItem.HomeMenus(serviceInfo: svc, mac2ios: iosListener).compactMap { $0 }
                         deviceItems.append(contentsOf: created)

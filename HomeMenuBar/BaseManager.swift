@@ -19,6 +19,12 @@ class BaseManager: NSObject, HMHomeManagerDelegate, HMAccessoryDelegate, mac2iOS
     var actionSets: [ActionSetInfoProtocol] = []
     var homes: [HomeInfoProtocol] = []
     
+    // MARK: - HomeKit loading state
+    var initialHomeListReceived: Bool = false
+    var homeFetchRetryCount: Int = 0
+    private let maxHomeFetchRetries: Int = 10
+    private let homeFetchRetryDelay: TimeInterval = 0.5
+
     /// init
     override init() {
         super.init()
@@ -88,12 +94,30 @@ class BaseManager: NSObject, HMHomeManagerDelegate, HMAccessoryDelegate, mac2iOS
     }
     
     private func performHomeKitRefresh() {
-        guard let home = self.homeManager?.usedHome(with: self.homeUniqueIdentifier) else {
-            HMLog.error(.homekit, "Any home have not been found.")
-            macOSController?.openNoHomeError()
-            macOSController?.reloadMenuExtra()
+        guard let hm = self.homeManager else { return }
+
+        // If homes are not loaded yet, avoid showing error and retry a few times
+        if hm.homes.isEmpty {
+            HMLog.menuDebug("HomeKit homes not yet loaded (initialHomeListReceived=\(initialHomeListReceived)) - deferring error and retrying...")
+            if !initialHomeListReceived && homeFetchRetryCount < maxHomeFetchRetries {
+                homeFetchRetryCount += 1
+                DispatchQueue.main.asyncAfter(deadline: .now() + homeFetchRetryDelay) { [weak self] in
+                    self?.performHomeKitRefresh()
+                }
+                return
+            }
+            // If we've received an update callback and still no homes, then show error
+            if initialHomeListReceived {
+                HMLog.error(.homekit, "No HomeKit homes found after initial load.")
+                macOSController?.openNoHomeError()
+                macOSController?.reloadMenuExtra()
+            }
             return
         }
+
+        // Prefer persisted home if present, otherwise fall back to first available home
+        let chosenHome = hm.usedHome(with: self.homeUniqueIdentifier) ?? hm.homes.first!
+        let home = chosenHome
         home.delegate = self
 
         // Log which home is actually being used
@@ -103,7 +127,7 @@ class BaseManager: NSObject, HMHomeManagerDelegate, HMAccessoryDelegate, mac2iOS
         self.homeUniqueIdentifier = home.uniqueIdentifier
         SettingsManager.shared.lastHomeUUID = home.uniqueIdentifier.uuidString
 
-        homes = homeManager?.homes.map { HomeInfo(name: $0.name, uniqueIdentifier: $0.uniqueIdentifier) } ?? []
+        homes = hm.homes.map { HomeInfo(name: $0.name, uniqueIdentifier: $0.uniqueIdentifier) }
         
         // Debug: Log all accessories and their services
         HMLog.menuDebug("Found \(home.accessories.count) accessories:")

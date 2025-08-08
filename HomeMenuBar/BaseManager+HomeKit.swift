@@ -18,28 +18,29 @@ extension BaseManager {
     }
 
     func homeManagerDidUpdateHomes(_ manager: HMHomeManager) {
-        // Home structure changed; update the menu representation.
-        DispatchQueue.main.async {
-            self.fetchFromHomeKitAndReloadMenuExtra()
-        }
+        // Home structure updated; mark readiness and refresh
+        self.initialHomeListReceived = true
+        self.homeFetchRetryCount = 0
+        DispatchQueue.main.async { self.fetchFromHomeKitAndReloadMenuExtra() }
     }
 
     // MARK: HMAccessoryDelegate
 
     func accessory(_ accessory: HMAccessory, service: HMService, didUpdateValueFor characteristic: HMCharacteristic) {
-        updateDeviceState(from: characteristic, in: accessory)
+        updateDeviceState(from: characteristic, in: service)
     }
 }
 
 private extension BaseManager {
-    func updateDeviceState(from characteristic: HMCharacteristic, in accessory: HMAccessory) {
+    func updateDeviceState(from characteristic: HMCharacteristic, in service: HMService) {
         let characteristicType = CharacteristicType(key: characteristic.characteristicType)
         
         guard let value = characteristic.value, characteristicType.isSupported else {
             return
         }
 
-        let deviceUUID = accessory.uniqueIdentifier
+        // Use the service UUID as the device identifier, since UI items are keyed by service UUID
+        let deviceUUID = service.uniqueIdentifier
 
         HMLog.menuDebug("HomeKit: Received update for \(characteristicType.stringValue) on device \(deviceUUID) - value: \(value)")
 

@@ -10,8 +10,15 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
     private enum ToolbarItemID: String {
         case menu = "settings.menu"
         case scenes = "settings.scenes"
-        case devices = "settings.devices"
+        case help = "settings.help"
     }
+    // Device categories for Home tab grouping
+    private enum DeviceCategory: String {
+        case bulbs = "Bulbs"
+        case power = "Power & Outlets"
+        case sensors = "Sensors"
+    }
+
     
     private var iosListener: mac2iOS?
     private var scenesListContainerView: NSView?
@@ -233,7 +240,7 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
         tabView.tabViewType = .noTabsNoBorder
         self.tabView = tabView
         
-        // Merge Home (Menu) + Devices into a single "Home" tab
+        // Tabs: Home, Scenes, Help
         let homeTab = NSTabViewItem(identifier: ToolbarItemID.menu.rawValue)
         homeTab.label = "Home"
         homeTab.view = createHomeTabContent()
@@ -242,9 +249,14 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
         scenesTab.label = "Scenes"
         scenesTab.view = createScenesTabContent()
         
-        // Order: Home, Scenes
+        let helpTab = NSTabViewItem(identifier: ToolbarItemID.help.rawValue)
+        helpTab.label = "Help"
+        helpTab.view = createHelpTabContent()
+        
+        // Order: Home, Scenes, Help
         tabView.addTabViewItem(homeTab)
         tabView.addTabViewItem(scenesTab)
+        tabView.addTabViewItem(helpTab)
         
         contentView = tabView
         
@@ -282,7 +294,7 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
         let item = NSToolbarItem(itemIdentifier: itemIdentifier)
         
         // Build a compact, capsule-style segmented control (more native)
-        let seg = NSSegmentedControl(labels: ["Home", "Scenes"], trackingMode: .selectOne, target: self, action: #selector(segmentedChanged(_:)))
+        let seg = NSSegmentedControl(labels: ["Home", "Scenes", "Help"], trackingMode: .selectOne, target: self, action: #selector(segmentedChanged(_:)))
         seg.segmentStyle = .capsule
         seg.controlSize = .regular
         seg.translatesAutoresizingMaskIntoConstraints = false
@@ -313,11 +325,12 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
     @objc private func selectScenesTab() { selectTab(with: ToolbarItemID.scenes.rawValue) }
     
     @objc private func segmentedChanged(_ sender: NSSegmentedControl) {
-        // Map segment to identifiers in order: Menu (0), Devices (1), Scenes (2)
+        // Map segment to identifiers in order: Home (0), Scenes (1), Help (2)
         let identifier: String
         switch sender.selectedSegment {
         case 0: identifier = ToolbarItemID.menu.rawValue // Home
         case 1: identifier = ToolbarItemID.scenes.rawValue
+        case 2: identifier = ToolbarItemID.help.rawValue
         default: identifier = ToolbarItemID.menu.rawValue
         }
         selectTab(with: identifier)
@@ -337,6 +350,7 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
                 switch identifier {
                 case ToolbarItemID.menu.rawValue: seg.selectedSegment = 0
                 case ToolbarItemID.scenes.rawValue: seg.selectedSegment = 1
+                case ToolbarItemID.help.rawValue: seg.selectedSegment = 2
                 default: break
                 }
             }
@@ -504,7 +518,25 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
     }
     
     // Removed separate Devices tab; devices are shown in the merged Home tab.
-    
+
+    // Categorization helpers
+    private func categorizeService(_ service: ServiceInfoProtocol) -> DeviceCategory? {
+        if SharedUtilities.isServiceLightbulb(service) { return .bulbs }
+        // Power/outlet grouping: explicit types or characteristics
+        if let s = service as? ServiceInfo {
+            switch s.type {
+            case .switch, .outlet: return .power
+            case .unknown: break
+            default: break
+            }
+        }
+        if service.characteristics.contains(where: { $0.type == .outletInUse || $0.type == .on }) {
+            return .power
+        }
+        if SharedUtilities.isServiceSensor(service) { return .sensors }
+        return nil
+    }
+
     private func populateDevicesList() {
         guard let containerView = devicesListContainerView else {
             HMLog.error(.menu, "Devices list container view is nil")
@@ -522,25 +554,26 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
         // Filter devices for the current home
         let filteredDevices = filterDevicesForCurrentHome(homeKitDevices)
         
-        // Create a list of individual services (like the menu bar does)
-        // Devices tab should only show lightbulbs/lamps, not sensors.
-        var individualServices: [(accessory: AccessoryInfoProtocol, service: ServiceInfoProtocol)] = []
-        
+        // Build categorized service lists
+        var bulbs: [(AccessoryInfoProtocol, ServiceInfoProtocol)] = []
+        var power: [(AccessoryInfoProtocol, ServiceInfoProtocol)] = []
+        var sensors: [(AccessoryInfoProtocol, ServiceInfoProtocol)] = []
+
         for device in filteredDevices {
             for service in device.services {
-                if isServiceSupported(service) && SharedUtilities.isServiceLightbulb(service) {
-                    individualServices.append((accessory: device, service: service))
+                guard let category = categorizeService(service) else { continue }
+                switch category {
+                case .bulbs: bulbs.append((device, service))
+                case .power: power.append((device, service))
+                case .sensors: sensors.append((device, service))
                 }
             }
         }
-        
-        // Filter out hidden services from supported services
-        let visibleServices = individualServices.filter { !hiddenDeviceIDs.contains($0.service.uniqueIdentifier.uuidString) }
-        let hiddenServices = individualServices.filter { hiddenDeviceIDs.contains($0.service.uniqueIdentifier.uuidString) }
-        
-        
-        if visibleServices.isEmpty && hiddenServices.isEmpty {
-            let noDevicesLabel = NSTextField(labelWithString: "No supported lightbulbs found\n(Only lightbulbs and lamps are supported)")
+
+        let totalCount = bulbs.count + power.count + sensors.count
+
+        if totalCount == 0 {
+            let noDevicesLabel = NSTextField(labelWithString: "No devices found for this home")
             noDevicesLabel.font = NSFont.systemFont(ofSize: 14)
             noDevicesLabel.textColor = NSColor.labelColor
             noDevicesLabel.alignment = .center
@@ -557,71 +590,42 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
         } else {
             var previousView: NSView?
             
-            // First show visible services
-            if !visibleServices.isEmpty {
-                let visibleSectionLabel = createSectionLabel(title: "Visible Devices (\(visibleServices.count))")
-                containerView.addSubview(visibleSectionLabel)
-                
+            func addSection(_ title: String, items: [(AccessoryInfoProtocol, ServiceInfoProtocol)], startIndex: inout Int) {
+                guard !items.isEmpty else { return }
+                let label = createSectionLabel(title: "\(title) (\(items.count))")
+                containerView.addSubview(label)
                 NSLayoutConstraint.activate([
-                    visibleSectionLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                    visibleSectionLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                    visibleSectionLabel.heightAnchor.constraint(equalToConstant: 30)
+                    label.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                    label.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                    label.heightAnchor.constraint(equalToConstant: 30)
                 ])
-                
                 if previousView == nil {
-                    visibleSectionLabel.topAnchor.constraint(equalTo: containerView.topAnchor).isActive = true
+                    label.topAnchor.constraint(equalTo: containerView.topAnchor).isActive = true
                 } else {
-                    visibleSectionLabel.topAnchor.constraint(equalTo: previousView!.bottomAnchor, constant: sceneRowSpacing).isActive = true
+                    label.topAnchor.constraint(equalTo: previousView!.bottomAnchor, constant: sectionSpacing).isActive = true
                 }
-                previousView = visibleSectionLabel
-                
-                for (index, serviceData) in visibleServices.enumerated() {
-                    let deviceRowView = createServiceRowView(accessory: serviceData.accessory, service: serviceData.service, index: index, isHidden: false)
-                    containerView.addSubview(deviceRowView)
-                    
+                previousView = label
+                for (acc, svc) in items {
+                    // Use service UUID hash as stable identifier for UI actions via representedObject
+                    let isHidden = hiddenDeviceIDs.contains(svc.uniqueIdentifier.uuidString)
+                    let row = createServiceRowView(accessory: acc, service: svc, index: startIndex, isHidden: isHidden)
+                    row.setAccessibilityIdentifier(svc.uniqueIdentifier.uuidString)
+                    containerView.addSubview(row)
                     NSLayoutConstraint.activate([
-                        deviceRowView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                        deviceRowView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                        deviceRowView.heightAnchor.constraint(equalToConstant: sceneRowHeight)
+                        row.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
+                        row.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
+                        row.heightAnchor.constraint(equalToConstant: sceneRowHeight)
                     ])
-                    
-                    deviceRowView.topAnchor.constraint(equalTo: previousView!.bottomAnchor, constant: sceneRowSpacing).isActive = true
-                    previousView = deviceRowView
+                    row.topAnchor.constraint(equalTo: previousView!.bottomAnchor, constant: sceneRowSpacing).isActive = true
+                    previousView = row
+                    startIndex += 1
                 }
             }
-            
-            // Then show hidden services if any
-            if !hiddenServices.isEmpty {
-                let hiddenSectionLabel = createSectionLabel(title: "Hidden Devices (\(hiddenServices.count))")
-                containerView.addSubview(hiddenSectionLabel)
-                
-                NSLayoutConstraint.activate([
-                    hiddenSectionLabel.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                    hiddenSectionLabel.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                    hiddenSectionLabel.heightAnchor.constraint(equalToConstant: 30)
-                ])
-                
-                if previousView == nil {
-                    hiddenSectionLabel.topAnchor.constraint(equalTo: containerView.topAnchor).isActive = true
-                } else {
-                    hiddenSectionLabel.topAnchor.constraint(equalTo: previousView!.bottomAnchor, constant: sectionSpacing).isActive = true
-                }
-                previousView = hiddenSectionLabel
-                
-                for (index, serviceData) in hiddenServices.enumerated() {
-                    let deviceRowView = createServiceRowView(accessory: serviceData.accessory, service: serviceData.service, index: index + visibleServices.count, isHidden: true)
-                    containerView.addSubview(deviceRowView)
-                    
-                    NSLayoutConstraint.activate([
-                        deviceRowView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-                        deviceRowView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor),
-                        deviceRowView.heightAnchor.constraint(equalToConstant: sceneRowHeight)
-                    ])
-                    
-                    deviceRowView.topAnchor.constraint(equalTo: previousView!.bottomAnchor, constant: sceneRowSpacing).isActive = true
-                    previousView = deviceRowView
-                }
-            }
+
+            var runningIndex = 0
+            addSection(DeviceCategory.bulbs.rawValue, items: bulbs, startIndex: &runningIndex)
+            addSection(DeviceCategory.power.rawValue, items: power, startIndex: &runningIndex)
+            addSection(DeviceCategory.sensors.rawValue, items: sensors, startIndex: &runningIndex)
             
             if let lastView = previousView {
                 lastView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor).isActive = true
@@ -644,8 +648,8 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
     // MARK: - Device Filtering Helper
     
     private func isServiceSupported(_ service: ServiceInfoProtocol) -> Bool {
-        // Only treat lightbulbs as supported for the Devices tab; sensors are excluded from here.
-        return SharedUtilities.isServiceSupported(service) && SharedUtilities.isServiceLightbulb(service)
+        // Home tab shows bulbs, power/outlet, sensors
+        return categorizeService(service) != nil
     }
     
     // MARK: - Device Row View
@@ -956,6 +960,74 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
     ])
     
     return containerView
+    }
+
+    // MARK: - Help Tab Content
+    private func createHelpTabContent() -> NSView {
+        let containerView = NSView()
+        let scrollView = NSScrollView()
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.autoresizingMask = [.width, .height]
+        containerView.addSubview(scrollView)
+        scrollView.frame = containerView.bounds
+        scrollView.autoresizingMask = [.width, .height]
+
+        let contentView = NSView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+
+        let header = createSectionHeader(title: "Help")
+
+        let repoLabel = NSTextField(labelWithString: "GitHub Repository:")
+        repoLabel.font = NSFont.systemFont(ofSize: 13)
+        repoLabel.textColor = NSColor.secondaryLabelColor
+        repoLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let link = NSButton(title: "HomeMenuBarApp on GitHub", target: self, action: #selector(openRepo))
+        link.bezelStyle = .inline
+        link.isBordered = false
+        link.font = NSFont.systemFont(ofSize: 13)
+        link.contentTintColor = NSColor.linkColor
+        link.translatesAutoresizingMaskIntoConstraints = false
+
+        let versionString = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+        let buildString = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? ""
+        let versionLabel = NSTextField(labelWithString: "Version: \(versionString) (\(buildString))")
+        versionLabel.font = NSFont.systemFont(ofSize: 12)
+        versionLabel.textColor = NSColor.secondaryLabelColor
+        versionLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = NSStackView(views: [header, repoLabel, link, versionLabel])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = elementSpacing
+        stack.translatesAutoresizingMaskIntoConstraints = false
+
+        contentView.addSubview(stack)
+
+        NSLayoutConstraint.activate([
+            stack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: standardPadding),
+            stack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: standardPadding),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -standardPadding)
+        ])
+
+        scrollView.documentView = contentView
+        let clip = scrollView.contentView
+        NSLayoutConstraint.activate([
+            contentView.topAnchor.constraint(equalTo: clip.topAnchor),
+            contentView.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: clip.trailingAnchor),
+            contentView.bottomAnchor.constraint(greaterThanOrEqualTo: clip.bottomAnchor)
+        ])
+
+        return containerView
+    }
+
+    @objc private func openRepo() {
+        if let url = URL(string: "https://github.com/luuccaaaa/HomeMenuBarApp") {
+            NSWorkspace.shared.open(url)
+        }
     }
     
     private func populateScenesList() {
@@ -1282,46 +1354,27 @@ class SettingsWindow: NSWindow, NSToolbarDelegate {
 
     
     @objc private func deviceButtonClicked(_ sender: NSButton) {
-        let serviceIndex = sender.tag
-        let homeKitDevices = iosListener?.accessories ?? []
-        
-        // Create a list of individual services (same as in populateDevicesList)
-        var individualServices: [(accessory: AccessoryInfoProtocol, service: ServiceInfoProtocol)] = []
-        
-        for device in homeKitDevices {
-            for service in device.services {
-                if isServiceSupported(service) {
-                    individualServices.append((accessory: device, service: service))
-                }
+        // Resolve the service UUID from the row’s accessibility identifier via superview chain
+        var host: NSView? = sender.superview
+        var serviceUUIDString: String?
+        while host != nil {
+            if let id = host?.accessibilityIdentifier(), UUID(uuidString: id) != nil {
+                serviceUUIDString = id
+                break
             }
+            host = host?.superview
         }
-        
-        // Filter out hidden services from supported services
-        let visibleServices = individualServices.filter { !hiddenDeviceIDs.contains($0.service.uniqueIdentifier.uuidString) }
-        let hiddenServices = individualServices.filter { hiddenDeviceIDs.contains($0.service.uniqueIdentifier.uuidString) }
-        
-        if serviceIndex < visibleServices.count {
-            // This is a visible service - hide it
-            let serviceData = visibleServices[serviceIndex]
-            hiddenDeviceIDs.insert(serviceData.service.uniqueIdentifier.uuidString)
-            saveSettings()
+        guard let uuidString = serviceUUIDString else {
+            HMLog.error(.menu, "Could not resolve service UUID for device button action")
+            return
+        }
+        if hiddenDeviceIDs.contains(uuidString) {
+            hiddenDeviceIDs.remove(uuidString)
         } else {
-            // This is a hidden service - show it
-            let hiddenServiceIndex = serviceIndex - visibleServices.count
-            guard hiddenServiceIndex >= 0 && hiddenServiceIndex < hiddenServices.count else {
-                HMLog.error(.menu, "Hidden service index out of bounds: \(hiddenServiceIndex) (hidden services: \(hiddenServices.count), visible services: \(visibleServices.count), button tag: \(serviceIndex))")
-                return
-            }
-            
-            let serviceData = hiddenServices[hiddenServiceIndex]
-            hiddenDeviceIDs.remove(serviceData.service.uniqueIdentifier.uuidString)
-            saveSettings()
+            hiddenDeviceIDs.insert(uuidString)
         }
-        
-        // Refresh the devices list to show updated state
+        saveSettings()
         populateDevicesList()
-        
-        // Notify the main app to update the menu
         notifyMenuUpdate()
     }
     
